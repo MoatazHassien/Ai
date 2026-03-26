@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Search Algorithms Quiz</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .option-btn { transition: all 0.2s ease-in-out; }
+        .option-btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+        .option-selected { border-color: #3b82f6 !important; background-color: #eff6ff !important; }
+        .option-correct { border-color: #10b981 !important; background-color: #d1fae5 !important; color: #065f46; }
+        .option-wrong { border-color: #ef4444 !important; background-color: #fee2e2 !important; color: #991b1b; }
+        
+        /* SVG Standard Styles */
+        .node { fill: #ffffff; stroke: #3B82F6; stroke-width: 3px; }
+        .node-minimax { fill: #f8fafc; stroke: #6366f1; stroke-width: 3px; }
+        .node-text { font-family: 'Inter', sans-serif; font-size: 16px; font-weight: 600; fill: #1F2937; text-anchor: middle; dominant-baseline: central; }
+        .edge { stroke: #9CA3AF; stroke-width: 2.5px; fill: none; }
+        .edge-directed { stroke: #9CA3AF; stroke-width: 2.5px; fill: none; marker-end: url(#arrow); }
+        .label { font-family: 'Inter', sans-serif; font-size: 13px; fill: #4B5563; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+        .label-bg { fill: rgba(255,255,255,0.9); rx: 4; ry: 4; }
+    </style>
+</head>
+<body class="text-gray-800 min-h-screen flex items-center justify-center p-4">
+
+    <div id="app" class="w-full max-w-5xl bg-white rounded-2xl shadow-xl overflow-hidden flex flex-col md:flex-row h-auto md:h-[600px]">
+        
+        <!-- Left Side: SVG Visualization -->
+        <div class="w-full md:w-1/2 bg-slate-50 border-b md:border-b-0 md:border-r border-gray-200 p-6 flex flex-col justify-center items-center relative">
+            <div class="absolute top-4 left-4 text-sm font-semibold text-blue-600 bg-blue-100 px-3 py-1 rounded-full" id="question-counter">Question 1 of 10</div>
+            <div id="svg-container" class="w-full h-full flex items-center justify-center min-h-[300px]">
+                <!-- SVG will be injected here -->
+            </div>
+        </div>
+
+        <!-- Right Side: Question & Options -->
+        <div class="w-full md:w-1/2 p-6 md:p-10 flex flex-col">
+            <h2 id="question-text" class="text-xl font-bold mb-6 text-gray-900 leading-relaxed">Question text goes here?</h2>
+            
+            <div id="options-container" class="space-y-3 flex-grow">
+                <!-- Options will be injected here -->
+            </div>
+
+            <div id="feedback-container" class="mt-6 hidden rounded-lg p-4 text-sm font-medium">
+                <!-- Feedback (Correct/Wrong) + Explanation -->
+            </div>
+
+            <div class="mt-8 flex justify-end">
+                <button id="submit-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-6 rounded-lg shadow-sm transition-colors" disabled>Submit Answer</button>
+                <button id="next-btn" class="bg-gray-800 hover:bg-gray-900 text-white font-semibold py-2.5 px-6 rounded-lg shadow-sm transition-colors hidden">Next Question</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Result Screen (Hidden initially) -->
+    <div id="result-screen" class="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-10 text-center hidden">
+        <svg class="w-20 h-20 mx-auto text-green-500 mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        <h2 class="text-3xl font-bold text-gray-900 mb-4">Quiz Completed!</h2>
+        <p class="text-lg text-gray-600 mb-8">You scored <span id="final-score" class="font-bold text-blue-600 text-2xl">0</span> out of 10.</p>
+        <button onclick="location.reload()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-lg shadow-sm transition-colors">Retake Quiz</button>
+    </div>
+
+<script>
+// --- SVG Shared Definitions ---
+const svgDefs = `
+    <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="23" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#9CA3AF" />
+        </marker>
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.1"/>
+        </filter>
+    </defs>
+`;
+
+// Helper to draw nodes with text
+const drawNode = (cx, cy, label, r=20, classes="node") => 
+    `<circle cx="${cx}" cy="${cy}" r="${r}" class="${classes}" filter="url(#shadow)"></circle>
+     <text x="${cx}" y="${cy}" class="node-text">${label}</text>`;
+
+const drawRectNode = (x, y, w, h, label) =>
+    `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" class="node-minimax" filter="url(#shadow)"></rect>
+     <text x="${x+w/2}" y="${y+h/2}" class="node-text">${label}</text>`;
+
+const drawLabel = (x, y, text) => 
+    `<rect x="${x-15}" y="${y-10}" width="30" height="20" class="label-bg"></rect>
+     <text x="${x}" y="${y}" class="label">${text}</text>`;
+
+// --- Quiz Data ---
+const questions = [
+    {
+        questionText: "Assume left-to-right expansion. In what order does Depth-First Search (DFS) visit the nodes starting from S?",
+        svg: `<svg viewBox="0 0 400 300" class="w-full h-full">
+            ${svgDefs}
+            <path d="M 200 60 L 100 140 M 200 60 L 300 140 M 100 140 L 50 220 M 100 140 L 150 220 M 300 140 L 250 220 M 300 140 L 350 220" class="edge-directed"/>
+            ${drawNode(200, 60, 'S')}
+            ${drawNode(100, 140, 'A')} ${drawNode(300, 140, 'B')}
+            ${drawNode(50, 220, 'C')} ${drawNode(150, 220, 'D')} ${drawNode(250, 220, 'E')} ${drawNode(350, 220, 'F')}
+        </svg>`,
+        options: [
+            "S, A, C, D, B, E, F",
+            "S, A, B, C, D, E, F",
+            "S, B, E, F, A, C, D",
+            "C, D, A, E, F, B, S"
+        ],
+        correctIndex: 0,
+        explanation: "DFS dives as deep as possible first. It visits the root (S), goes left to (A), then left to (C). After C, it backtracks to A and visits (D). Then it backtracks to S and visits the right branch (B, E, F)."
+    },
+    {
+        questionText: "Using Breadth-First Search (BFS), in what order will the nodes be expanded starting from S?",
+        svg: `<svg viewBox="0 0 400 300" class="w-full h-full">
+            ${svgDefs}
+            <path d="M 200 50 L 120 130 M 200 50 L 280 130 M 120 130 L 120 220 M 280 130 L 280 220 M 120 130 L 280 130" class="edge-directed"/>
+            ${drawNode(200, 50, 'S')}
+            ${drawNode(120, 130, 'X')} ${drawNode(280, 130, 'Y')}
+            ${drawNode(120, 220, 'Z')} ${drawNode(280, 220, 'W')}
+        </svg>`,
+        options: [
+            "S, X, Z, Y, W",
+            "S, Y, W, X, Z",
+            "S, X, Y, Z, W",
+            "Z, W, X, Y, S"
+        ],
+        correctIndex: 2,
+        explanation: "BFS explores layer by layer (shallowest nodes first). It visits depth 0 (S), then depth 1 (X, Y), then depth 2 (Z, W)."
+    },
+    {
+        questionText: "In this Minimax game tree, what is the optimal utility value that the root MAX node will achieve?",
+        svg: `<svg viewBox="0 0 400 300" class="w-full h-full">
+            ${svgDefs}
+            <path d="M 200 70 L 100 150 M 200 70 L 300 150 M 100 170 L 50 240 M 100 170 L 150 240 M 300 170 L 250 240 M 300 170 L 350 240" class="edge"/>
+            ${drawRectNode(175, 40, 50, 30, 'MAX')}
+            ${drawRectNode(75, 140, 50, 30, 'MIN')} ${drawRectNode(275, 140, 50, 30, 'MIN')}
+            ${drawNode(50, 250, '3')} ${drawNode(150, 250, '8')}
+            ${drawNode(250, 250, '2')} ${drawNode(350, 250, '9')}
+        </svg>`,
+        options: [
+            "2", "3", "8", "9"
+        ],
+        correctIndex: 1,
+        explanation: "The left MIN node chooses the minimum of its children (3, 8) -> 3. The right MIN node chooses (2, 9) -> 2. The root MAX node chooses the maximum of those results (3, 2) -> 3."
+    },
+    {
+        questionText: "Assume a left-to-right evaluation. Will Alpha-Beta pruning evaluate the node labeled 'X'?",
+        svg: `<svg viewBox="0 0 400 300" class="w-full h-full">
+            ${svgDefs}
+            <path d="M 200 70 L 100 150 M 200 70 L 300 150 M 100 170 L 50 240 M 100 170 L 150 240 M 300 170 L 250 240 M 300 170 L 350 240" class="edge"/>
+            ${drawRectNode(175, 40, 50, 30, 'MAX')}
+            ${drawRectNode(75, 140, 50, 30, 'MIN')} ${drawRectNode(275, 140, 50, 30, 'MIN')}
+            ${drawNode(50, 250, '5')} ${drawNode(150, 250, '6')}
+            ${drawNode(250, 250, '4')} ${drawNode(350, 250, 'X', 20, 'node stroke-red-500 stroke-[3px]')}
+        </svg>`,
+        options: [
+            "Yes, Alpha-Beta pruning always evaluates all terminal nodes.",
+            "Yes, because 4 is less than 5.",
+            "No, because the right MIN node is guaranteed to return a value ≤ 4, but MAX already has an option of 5 from the left.",
+            "No, because X is a variable and cannot be evaluated."
+        ],
+        correctIndex: 2,
+        explanation: "The left MIN evaluates 5, 6 and returns 5. MAX's best option (alpha) is now 5. The right MIN sees 4. Its final value will be ≤ 4. Since 4 ≤ 5, MAX will never choose the right branch. Node X is pruned!"
+    },
+    {
+        questionText: "Which path will A* Search find from S to G? (Node labels show heuristic h, edge labels show step cost).",
+        svg: `<svg viewBox="0 0 400 300" class="w-full h-full">
+            ${svgDefs}
+            <path d="M 80 150 L 200 70 M 80 150 L 200 230 M 200 70 L 200 230 M 200 70 L 320 150 M 200 230 L 320 150" class="edge-directed"/>
+            
+            ${drawLabel(130, 100, "1")} ${drawLabel(130, 200, "5")}
+            ${drawLabel(215, 150, "2")} 
+            ${drawLabel(270, 100, "6")} ${drawLabel(270, 200, "1")}
+            
+            ${drawNode(80, 150, 'S')} <text x="80" y="185" class="label text-blue-600">h=5</text>
+            ${drawNode(200, 70, 'A')} <text x="200" y="30" class="label text-blue-600">h=3</text>
+            ${drawNode(200, 230, 'B')} <text x="200" y="270" class="label text-blue-600">h=1</text>
+            ${drawNode(320, 150, 'G')} <text x="320" y="185" class="label text-blue-600">h=0</text>
+        </svg>`,
+        options: [
+            "S -> A -> G (Cost: 7)",
+            "S -> B -> G (Cost: 6)",
+            "S -> A -> B -> G (Cost: 4)",
+            "A* cannot find a path in this graph"
+        ],
+        correctIndex: 2,
+        explanation: "A* evaluates f(n) = g(n) + h(n). S expands to A (f=1+3=4) and B (f=5+1=6). It expands A next, discovering a cheaper path to B through A (g=1+2=3). From B, it reaches G with total cost 3+1=4. The path is S->A->B->G."
+    },
+    {
+        questionText: "In this graph, which node does Greedy Best-First Search expand immediately after the start node S?",
+        svg: `<svg viewBox="0 0 400 300" class="w-full h-full">
+            ${svgDefs}
+            <path d="M 100 150 L 250 80 M 100 150 L 250 220 M 250 80 L 350 150 M 250 220 L 350 150" class="edge-directed"/>
+            ${drawLabel(170, 100, "cost: 10")} ${drawLabel(170, 200, "cost: 1")}
+            
+            ${drawNode(100, 150, 'S')} <text x="100" y="185" class="label">h=10</text>
+            ${drawNode(250, 80, 'A')} <text x="250" y="45" class="label text-red-600">h=1</text>
+            ${drawNode(250, 220, 'B')} <text x="250" y="260" class="label text-red-600">h=8</text>
+            ${drawNode(350, 150, 'G')} <text x="350" y="185" class="label">h=0</text>
+        </svg>`,
+        options: [
+            "Node B, because the edge cost (1) is much cheaper than S->A.",
+            "Node A, because Greedy search only looks at the lowest heuristic value h(n).",
+            "Node G, because it is the goal.",
+            "Both A and B are expanded simultaneously."
+        ],
+        correctIndex: 1,
+        explanation: "Greedy Best-First Search ignores the path cost g(n) and expands the node that appears closest to the goal according to the heuristic h(n). Since h(A)=1 is less than h(B)=8, it expands A first."
+    },
+    {
+        questionText: "What happens if a standard Depth-First Search (DFS) is applied to this state space graph WITHOUT an 'explored/visited' set?",
+        svg: `<svg viewBox="0 0 400 300" class="w-full h-full">
+            ${svgDefs}
+            <path d="M 120 100 L 280 100 M 280 100 L 280 200 M 280 200 L 120 200 M 120 200 L 120 100 M 120 200 L 50 250 M 280 200 L 350 250" class="edge-directed"/>
+            
+            ${drawNode(120, 100, 'A')} ${drawNode(280, 100, 'B')}
+            ${drawNode(120, 200, 'D')} ${drawNode(280, 200, 'C')}
+            ${drawNode(50, 250, 'S')} ${drawNode(350, 250, 'G')}
+        </svg>`,
+        options: [
+            "It will immediately find the path S -> D -> C -> G.",
+            "It will get stuck in an infinite loop due to the cycle (A -> B -> C -> D -> A...).",
+            "It will automatically convert the graph into a tree and solve it.",
+            "It will crash because graphs cannot be searched."
+        ],
+        correctIndex: 1,
+        explanation: "Without keeping track of visited states (an explored set), DFS can continuously follow edges in a cycle infinitely, never reaching the goal."
+    },
+    {
+        questionText: "In A* search, the evaluation function is f(n) = g(n) + h(n). What is the f-cost of node 'B' in this tree?",
+        svg: `<svg viewBox="0 0 400 300" class="w-full h-full">
+            ${svgDefs}
+            <path d="M 200 60 L 100 150 M 200 60 L 300 150 M 100 150 L 100 240 M 300 150 L 300 240" class="edge-directed"/>
+            ${drawLabel(140, 95, "cost: 5")} ${drawLabel(260, 95, "cost: 3")}
+            
+            ${drawNode(200, 60, 'S')}
+            ${drawNode(100, 150, 'A')} <text x="100" y="190" class="label">h=2</text>
+            ${drawNode(300, 150, 'B')} <text x="300" y="190" class="label text-purple-600 font-bold">h=6</text>
+            ${drawNode(100, 240, 'G1')} ${drawNode(300, 240, 'G2')}
+        </svg>`,
+        options: [
+            "3", "6", "9", "11"
+        ],
+        correctIndex: 2,
+        explanation: "f(B) = g(B) + h(B). The path cost from Start to B is g(B) = 3. The heuristic value is h(B) = 6. Therefore, f(B) = 3 + 6 = 9."
+    },
+    {
+        questionText: "Assuming uniform step costs are NOT guaranteed, which search algorithm is guaranteed to find the shortest path (lowest total cost) from S to G?",
+        svg: `<svg viewBox="0 0 400 300" class="w-full h-full">
+            ${svgDefs}
+            <path d="M 100 150 L 250 70 M 100 150 L 250 230 M 250 70 L 400 150 M 250 230 L 400 150" class="edge-directed"/>
+            ${drawLabel(170, 95, "cost: 1")} ${drawLabel(330, 95, "cost: 1")}
+            ${drawLabel(170, 205, "cost: 5")} ${drawLabel(330, 205, "cost: 5")}
+            
+            ${drawNode(100, 150, 'S')}
+            ${drawNode(250, 70, 'Top')} 
+            ${drawNode(250, 230, 'Bot')} 
+            ${drawNode(400, 150, 'G')}
+        </svg>`,
+        options: [
+            "Breadth-First Search (BFS)",
+            "Depth-First Search (DFS)",
+            "Uniform-Cost Search (or A* with an admissible heuristic)",
+            "None of the above"
+        ],
+        correctIndex: 2,
+        explanation: "BFS only finds the shortest path in terms of the *number of edges*, not edge weights. Uniform-Cost Search (which is A* with h(n)=0) always expands the lowest path cost g(n), guaranteeing optimality for weighted graphs."
+    },
+    {
+        questionText: "For the heuristic function h(n) to be 'admissible' in A* search, what is the MAXIMUM valid value for h(A)?",
+        svg: `<svg viewBox="0 0 400 300" class="w-full h-full">
+            ${svgDefs}
+            <path d="M 80 150 L 240 150 M 240 150 L 400 150" class="edge-directed"/>
+            ${drawLabel(160, 130, "cost: 3")} ${drawLabel(320, 130, "cost: 4")}
+            
+            ${drawNode(80, 150, 'S')}
+            ${drawNode(240, 150, 'A')}
+            ${drawNode(400, 150, 'G')}
+        </svg>`,
+        options: [
+            "3", "4", "7", "0"
+        ],
+        correctIndex: 1,
+        explanation: "An admissible heuristic must never overestimate the true cost to reach the goal. The true cost from A to G is 4. Therefore, h(A) can be at most 4."
+    }
+];
+
+// --- Quiz Logic ---
+let currentQuestionIndex = 0;
+let score = 0;
+let selectedOptionIndex = null;
+let isAnswerSubmitted = false;
+
+const svgContainer = document.getElementById('svg-container');
+const questionCounter = document.getElementById('question-counter');
+const questionText = document.getElementById('question-text');
+const optionsContainer = document.getElementById('options-container');
+const submitBtn = document.getElementById('submit-btn');
+const nextBtn = document.getElementById('next-btn');
+const feedbackContainer = document.getElementById('feedback-container');
+const appContainer = document.getElementById('app');
+const resultScreen = document.getElementById('result-screen');
+const finalScoreSpan = document.getElementById('final-score');
+
+function loadQuestion() {
+    isAnswerSubmitted = false;
+    selectedOptionIndex = null;
+    submitBtn.disabled = true;
+    submitBtn.classList.remove('hidden');
+    nextBtn.classList.add('hidden');
+    feedbackContainer.classList.add('hidden');
+    
+    const q = questions[currentQuestionIndex];
+    
+    // Update counter & text
+    questionCounter.textContent = `Question ${currentQuestionIndex + 1} of ${questions.length}`;
+    questionText.textContent = q.questionText;
+    
+    // Update SVG
+    svgContainer.innerHTML = q.svg;
+    
+    // Render Options
+    optionsContainer.innerHTML = '';
+    q.options.forEach((optText, index) => {
+        const div = document.createElement('div');
+        div.className = `option-btn p-4 border-2 border-gray-200 rounded-xl cursor-pointer bg-white text-gray-700 font-medium hover:bg-gray-50 flex items-center gap-3`;
+        div.innerHTML = `
+            <div class="w-6 h-6 rounded-full border-2 border-gray-300 flex-shrink-0 flex items-center justify-center radio-circle"></div>
+            <span>${optText}</span>
+        `;
+        div.onclick = () => selectOption(index, div);
+        optionsContainer.appendChild(div);
+    });
+}
+
+function selectOption(index, element) {
+    if (isAnswerSubmitted) return;
+    
+    selectedOptionIndex = index;
+    submitBtn.disabled = false;
+    
+    // Reset all options
+    document.querySelectorAll('.option-btn').forEach(el => {
+        el.classList.remove('option-selected', 'border-blue-500', 'bg-blue-50');
+        el.querySelector('.radio-circle').classList.remove('border-blue-500', 'bg-blue-500');
+        el.querySelector('.radio-circle').innerHTML = '';
+    });
+    
+    // Select clicked option
+    element.classList.add('option-selected');
+    const radio = element.querySelector('.radio-circle');
+    radio.classList.add('border-blue-500');
+    radio.innerHTML = `<div class="w-3 h-3 bg-blue-500 rounded-full"></div>`;
+}
+
+submitBtn.onclick = () => {
+    if (selectedOptionIndex === null) return;
+    
+    isAnswerSubmitted = true;
+    const q = questions[currentQuestionIndex];
+    const isCorrect = selectedOptionIndex === q.correctIndex;
+    
+    if (isCorrect) score++;
+    
+    // Highlight options
+    const optionsArray = Array.from(optionsContainer.children);
+    
+    // Mark the correct answer green
+    optionsArray[q.correctIndex].classList.add('option-correct');
+    
+    // If user was wrong, mark their selection red
+    if (!isCorrect) {
+        optionsArray[selectedOptionIndex].classList.add('option-wrong');
+    }
+    
+    // Show Feedback
+    feedbackContainer.classList.remove('hidden', 'bg-red-50', 'text-red-800', 'bg-green-50', 'text-green-800');
+    if (isCorrect) {
+        feedbackContainer.classList.add('bg-green-50', 'text-green-800');
+        feedbackContainer.innerHTML = `<strong>Correct!</strong> ${q.explanation}`;
+    } else {
+        feedbackContainer.classList.add('bg-red-50', 'text-red-800');
+        feedbackContainer.innerHTML = `<strong>Incorrect.</strong> ${q.explanation}`;
+    }
+    
+    // Toggle buttons
+    submitBtn.classList.add('hidden');
+    nextBtn.classList.remove('hidden');
+    
+    // If last question, change next button text
+    if (currentQuestionIndex === questions.length - 1) {
+        nextBtn.textContent = 'Finish Quiz';
+    }
+};
+
+nextBtn.onclick = () => {
+    currentQuestionIndex++;
+    if (currentQuestionIndex < questions.length) {
+        loadQuestion();
+    } else {
+        showResults();
+    }
+};
+
+function showResults() {
+    appContainer.classList.add('hidden');
+    resultScreen.classList.remove('hidden');
+    finalScoreSpan.textContent = score;
+}
+
+// Start Quiz
+loadQuestion();
+</script>
+
+</body>
+</html>
+
